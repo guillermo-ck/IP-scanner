@@ -1,0 +1,22 @@
+cat << 'EOF' > .gitignore
+# Binaries & build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Environment variables & secrets (API 키 및 환경 변수)
+.env
+*.env
+
+# Local test logs
+*.log
+
+# OS & Editor files
+.DS_Store
+.vscode/
+.idea/
+EOF
