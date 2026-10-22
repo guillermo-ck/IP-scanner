@@ -2,7 +2,7 @@ package threatintel
 
 import "time"
 
-// AbuseIPDBResponse -> maps the response from AbuseIPDB
+// AbuseIPDBResponse maps the response from AbuseIPDB API v2
 type AbuseIPDBResponse struct {
 	Data struct {
 		IPAddress            string `json:"ipAddress"`
@@ -20,7 +20,7 @@ type AbuseIPDBResponse struct {
 	} `json:"data"`
 }
 
-// VirusTotalResponse -> maps the response from VirusTotal (/ip_addresses/{ip}))
+// VirusTotalResponse maps the response from VirusTotal API v3
 type VirusTotalResponse struct {
 	Data struct {
 		Attributes struct {
@@ -38,15 +38,15 @@ type VirusTotalResponse struct {
 	} `json:"data"`
 }
 
-// ThreatReport represents unified, normalized intelligence for an IP (정규화된 위협 분석 결과)
-type ThreatReport struct {
+// ThreatResult aggregates intelligence data for an IP (통합 위협 분석 결과)
+type ThreatResult struct {
 	IP           string
 	AbuseScore   int
 	TotalReports int
 	VTMalicious  int
 	VTSuspicious int
 	ISP          string
-	Country      string
-	IsMalicious  bool
+	CountryCode  string
+	Err          error
 	QueriedAt    time.Time
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"time"
 
 	"ip-scanner/internal/parser"
 	"ip-scanner/internal/threatintel"
@@ -14,25 +16,27 @@ import (
 )
 
 func main() {
-	// 1. Load environment variables (.env 파일 로드)
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Printf("[!] Failed to load .env: %v\n", err)
+	// 1. Load environment variables
+	envPath := filepath.Join(".", ".env")
+	if err := godotenv.Load(envPath); err != nil {
+		log.Printf("[!] Warning: godotenv error on %s: %v\n", envPath, err)
 	}
 
 	abuseKey := os.Getenv("ABUSEIPDB_API_KEY")
 	vtKey := os.Getenv("VIRUSTOTAL_API_KEY")
 
 	if abuseKey == "" || vtKey == "" {
-		log.Fatal("[-] Missing API keys. Ensure ABUSEIPDB_API_KEY and VIRUSTOTAL_API_KEY are set.")
+		log.Fatal("[-] Missing API keys. Ensure ABUSEIPDB_API_KEY and VIRUSTOTAL_API_KEY are configured.")
 	}
 
-	// 2. Parse CLI flag //명렬졸 인수 파싱
-	logPath := flag.String("file", "", "Path to the log file")
+	// 2. CLI arguments (CLI 플래그 설정)
+	logPath := flag.String("file", "", "Path to the log file to analyze")
+	workers := flag.Int("workers", 2, "Number of concurrent worker goroutines")
+	rateLimitSec := flag.Int("delay", 15, "Delay in seconds between requests to respect API rate limits")
 	flag.Parse()
 
 	if *logPath == "" {
-		fmt.Println("Usage: go run cmd/scanner/main.go -file <path_to_log>")
+		fmt.Println("Usage: go run cmd/scanner/main.go -file <path_to_log> [-workers <num>] [-delay <sec>]")
 		os.Exit(1)
 	}
 
@@ -42,41 +46,38 @@ func main() {
 		log.Fatalf("[-] Failed to process log: %v", err)
 	}
 
-	fmt.Printf("[+] Extracted %d unique public IP(s). Starting lookup...\n\n", len(extractedIPs))
+	if len(extractedIPs) == 0 {
+		fmt.Println("[*] No public IP addresses found to scan.")
+		return
+	}
 
-	abuseClient := threatintel.NewAbuseIPDBClient(abuseKey)
-	vtClient := threatintel.NewVirusTotalClient(vtKey)
+	fmt.Printf("[+] Extracted %d unique public IP(s).\n", len(extractedIPs))
+	fmt.Printf("[*] Launching worker pool: %d workers | Rate limiter: %ds interval\n\n", *workers, *rateLimitSec)
+
+	// 4. Initialize scanner and run concurrent execution (동시성 스캔 실행)
+	scanner := threatintel.NewScanner(abuseKey, vtKey, time.Duration(*rateLimitSec)*time.Second)
 	ctx := context.Background()
 
-	// 4. Sequential lookup test (Phase 3 will upgrade this to a concurrent worker pool)
-	for _, ip := range extractedIPs {
-		fmt.Printf("🔍 Scanning IP: %s\n", ip)
+	startTime := time.Now()
+	results := scanner.ScanIPs(ctx, extractedIPs, *workers)
+	elapsed := time.Since(startTime)
 
-		// AbuseIPDB Lookup
-		abuseData, err := abuseClient.CheckIP(ctx, ip)
-		if err != nil {
-			fmt.Printf("  [!] AbuseIPDB error: %v\n", err)
-		} else {
-			fmt.Printf("  [AbuseIPDB] Score: %d%% | Reports: %d | ISP: %s | Country: %s\n",
-				abuseData.Data.AbuseConfidenceScore,
-				abuseData.Data.TotalReports,
-				abuseData.Data.ISP,
-				abuseData.Data.CountryCode,
-			)
+	// 5. Output raw results
+	fmt.Println("\n======================= SCAN RESULTS =======================")
+	for _, res := range results {
+		if res.Err != nil {
+			fmt.Printf("[-] IP: %-15s | Error: %v\n", res.IP, res.Err)
+			continue
 		}
 
-		// VirusTotal Lookup
-		vtData, err := vtClient.CheckIP(ctx, ip)
-		if err != nil {
-			fmt.Printf("  [!] VirusTotal error: %v\n", err)
-		} else {
-			stats := vtData.Data.Attributes.LastAnalysisStats
-			fmt.Printf("  [VirusTotal] Malicious: %d | Suspicious: %d | Harmless: %d\n",
-				stats.Malicious,
-				stats.Suspicious,
-				stats.Harmless,
-			)
-		}
-		fmt.Println("-----------------------------------------------------------------")
+		fmt.Printf("[+] IP: %-15s | Country: %-2s | ISP: %-20s | AbuseScore: %3d%% | VT Malicious: %2d\n",
+			res.IP,
+			res.CountryCode,
+			res.ISP,
+			res.AbuseScore,
+			res.VTMalicious,
+		)
 	}
+	fmt.Println("============================================================")
+	fmt.Printf("[*] Completed %d IP checks in %s\n", len(results), elapsed.Round(time.Millisecond))
 }
