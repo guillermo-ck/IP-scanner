@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ip-scanner/internal/parser"
+	"ip-scanner/internal/reporter"
 	"ip-scanner/internal/threatintel"
 
 	"github.com/joho/godotenv"
@@ -33,6 +34,9 @@ func main() {
 	logPath := flag.String("file", "", "Path to the log file to analyze")
 	workers := flag.Int("workers", 2, "Number of concurrent worker goroutines")
 	rateLimitSec := flag.Int("delay", 15, "Delay in seconds between requests to respect API rate limits")
+	jsonOutput := flag.String("json", "", "Export results to JSON file (optional)")
+	csvOutput := flag.String("csv", "", "Export results to CSV file (optional)")
+
 	flag.Parse()
 
 	if *logPath == "" {
@@ -63,21 +67,23 @@ func main() {
 	elapsed := time.Since(startTime)
 
 	// 5. Output raw results
-	fmt.Println("\n======================= SCAN RESULTS =======================")
-	for _, res := range results {
-		if res.Err != nil {
-			fmt.Printf("[-] IP: %-15s | Error: %v\n", res.IP, res.Err)
-			continue
-		}
+	reporter.PrintConsoleTable(results)
+	fmt.Printf("[*] Completed %d IP scans in %s\n", len(results), elapsed.Round(time.Millisecond))
 
-		fmt.Printf("[+] IP: %-15s | Country: %-2s | ISP: %-20s | AbuseScore: %3d%% | VT Malicious: %2d\n",
-			res.IP,
-			res.CountryCode,
-			res.ISP,
-			res.AbuseScore,
-			res.VTMalicious,
-		)
+	// 6. Export Reports (if requested)
+	if *jsonOutput != "" {
+		if err := reporter.ExportJSON(*jsonOutput, results); err != nil {
+			log.Printf("[-] Failed to export JSON: %v\n", err)
+		} else {
+			fmt.Printf("[+] JSON report saved to: %s\n", *jsonOutput)
+		}
 	}
-	fmt.Println("============================================================")
-	fmt.Printf("[*] Completed %d IP checks in %s\n", len(results), elapsed.Round(time.Millisecond))
+
+	if *csvOutput != "" {
+		if err := reporter.ExportCSV(*csvOutput, results); err != nil {
+			log.Printf("[-] Failed to export CSV: %v\n", err)
+		} else {
+			fmt.Printf("[+] CSV report saved to: %s\n", *csvOutput)
+		}
+	}
 }

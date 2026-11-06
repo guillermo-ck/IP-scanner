@@ -110,5 +110,8 @@ func (s *Scanner) querySingleIP(ctx context.Context, ip string) ThreatResult {
 	res.VTMalicious = vtResp.Data.Attributes.LastAnalysisStats.Malicious
 	res.VTSuspicious = vtResp.Data.Attributes.LastAnalysisStats.Suspicious
 
+	//3 위협 점수 산출
+	res.CalculateVerdict()
+
 	return res
 }
